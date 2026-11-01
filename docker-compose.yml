@@ -1,0 +1,85 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: codequest
+      POSTGRES_PASSWORD: codequest
+      POSTGRES_DB: codequest
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codequest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://codequest:codequest@db:5432/codequest?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-dev-secret-change-me-please-32chars}
+      JUDGE0_URL: ${JUDGE0_URL:-}
+      JUDGE0_API_KEY: ${JUDGE0_API_KEY:-}
+      JUDGE0_API_HOST: ${JUDGE0_API_HOST:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@codequest.dev}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin12345}
+      # The container runs in production mode but is served over plain http://localhost.
+      # Remove this once you put the app behind HTTPS.
+      INSECURE_COOKIES: "1"
+    ports:
+      - "3000:3000"
+    command: sh -c "npx prisma db push --skip-generate && npx tsx prisma/seed.ts && node server.js"
+
+  # Optional self-hosted Judge0 (Linux hosts with cgroup v1 or Judge0 1.13.1 config).
+  # Start with: docker compose --profile judge0 up -d
+  judge0-db:
+    profiles: ["judge0"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+      POSTGRES_DB: judge0
+    volumes:
+      - judge0db:/var/lib/postgresql/data
+
+  judge0-redis:
+    profiles: ["judge0"]
+    image: redis:7-alpine
+
+  judge0:
+    profiles: ["judge0"]
+    image: judge0/judge0:1.13.1
+    privileged: true
+    depends_on: [judge0-db, judge0-redis]
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+      POSTGRES_DB: judge0
+    ports:
+      - "2358:2358"
+
+  judge0-worker:
+    profiles: ["judge0"]
+    image: judge0/judge0:1.13.1
+    privileged: true
+    command: ["./scripts/workers"]
+    depends_on: [judge0-db, judge0-redis]
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+      POSTGRES_DB: judge0
+
+volumes:
+  pgdata:
+  judge0db:

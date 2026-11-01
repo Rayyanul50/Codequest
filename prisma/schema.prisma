@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SubmissionStatus {
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  COMPILE_ERROR
+}
+
+enum ProgressStatus {
+  ATTEMPTED
+  SOLVED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String   @unique
+  passwordHash  String
+  role          Role     @default(USER)
+  active        Boolean  @default(true)
+  onboarded     Boolean  @default(false)
+  level         Int      @default(1)
+  xp            Int      @default(0)
+  coins         Int      @default(0)
+  currentStreak Int      @default(0)
+  longestStreak Int      @default(0)
+  lastSolvedAt  DateTime?
+  createdAt     DateTime @default(now())
+
+  preference   UserPreference?
+  submissions  Submission[]
+  progress     UserProblem[]
+  achievements UserAchievement[]
+  xpEvents     XpEvent[]
+}
+
+model UserPreference {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  experienceLevel   String   @default("BEGINNER")
+  preferredLanguage String   @default("python")
+  interests         String[]
+}
+
+model World {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String
+  emoji       String    @default("🌍")
+  order       Int       @unique
+  problems    Problem[]
+}
+
+model Topic {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  problems Problem[]
+}
+
+model Problem {
+  id                  Int        @id @default(autoincrement())
+  slug                String     @unique
+  title               String
+  description         String
+  inputFormat         String     @default("")
+  outputFormat        String     @default("")
+  constraints         String     @default("")
+  difficulty          Difficulty
+  worldId             Int
+  world               World      @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  topicId             Int
+  topic               Topic      @relation(fields: [topicId], references: [id])
+  xpReward            Int        @default(100)
+  coinReward          Int        @default(10)
+  starterCode         Json       // { python: "...", cpp: "...", java: "..." }
+  solutionExplanation String     @default("")
+  order               Int        // global order in the journey (1-based)
+  isDaily             Boolean    @default(false)
+  active              Boolean    @default(true)
+
+  testCases   TestCase[]
+  submissions Submission[]
+  progress    UserProblem[]
+
+  @@index([worldId, order])
+}
+
+model TestCase {
+  id             Int     @id @default(autoincrement())
+  problemId      Int
+  problem        Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  input          String
+  expectedOutput String
+  hidden         Boolean @default(true)
+}
+
+model Submission {
+  id            Int              @id @default(autoincrement())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId     Int
+  problem       Problem          @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  language      String
+  code          String
+  status        SubmissionStatus
+  passed        Int              @default(0)
+  total         Int              @default(0)
+  executionTime Float?
+  memoryUsed    Int?
+  createdAt     DateTime         @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model UserProblem {
+  id        Int            @id @default(autoincrement())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId Int
+  problem   Problem        @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  status    ProgressStatus @default(ATTEMPTED)
+  attempts  Int            @default(0)
+  solvedAt  DateTime?
+
+  @@unique([userId, problemId])
+}
+
+model Achievement {
+  id          Int               @id @default(autoincrement())
+  key         String            @unique
+  name        String
+  description String
+  icon        String
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            Int         @id @default(autoincrement())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId Int
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+// Used for the weekly leaderboard and XP charts.
+model XpEvent {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
